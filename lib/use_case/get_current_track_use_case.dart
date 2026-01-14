@@ -1,0 +1,185 @@
+import 'dart:io';
+import 'package:path/path.dart' as p;
+import 'package:path_provider/path_provider.dart';
+import 'package:media_player/model/current_track_model.dart';
+import 'package:media_player/model/playing_track_model.dart';
+import 'package:media_player/service/playing_tracks_service.dart';
+import 'package:media_player/model/track_model.dart';
+import 'package:media_player/model/track_status.dart';
+
+class GetCurrentTrackUseCase {
+  GetCurrentTrackUseCase(
+      this._playingTracksService,
+      );
+
+  final PlayingTracksService _playingTracksService;
+
+  void Function(TrackStatus)? _onTrackChanged;
+
+  void setTrackChangedCallback(void Function(TrackStatus) callback) {
+    _onTrackChanged = callback;
+  }
+
+  void _notifyTrackChanged(TrackStatus status) {
+    _onTrackChanged?.call(status);
+  }
+
+  List<File> _tracks = [];
+  List<File> _slides = [];
+
+  int _trackIndex = 0;
+  int _slideIndex = 0;
+
+  MediaTurn _turn = MediaTurn.track;
+  bool _initialized = false;
+
+  Future<TrackStatus> startPeriodicWork() async {
+    try {
+      await _initMedia();
+
+      final next = _getNextFileWithType();
+      if (next == null) {
+        final status = const TrackNotFound();
+        _notifyTrackChanged(status);
+        return status;
+      }
+
+      final (file, fileType) = next;
+
+      final trackResult = _buildCurrentTrack(file, fileType);
+
+      final playingTrack = await _createPlayingTrackModel(
+        trackResult,
+        file,
+      );
+
+      if (playingTrack == null) {
+        final status = TrackError('Failed to create PlayingMediaModel');
+        _notifyTrackChanged(status);
+        return status;
+      }
+
+      final status = TrackPlaying(playingTrack);
+      _notifyTrackChanged(status);
+      return status;
+
+    } catch (e) {
+      final status = TrackError(e);
+      _notifyTrackChanged(status);
+      return status;
+    } finally {
+      _playingTracksService.startSingleTimer(
+        const Duration(seconds: 13),
+        _fetchNextTrack,
+      );
+    }
+  }
+  CurrentTrackModel _buildCurrentTrack(File file, FileType type) {
+    return CurrentTrackModel(
+      track: TrackModel(
+        filename: p.basename(file.path),
+        type: type.name, duration: 0, artist: '', source: '', sk: '', pk: '', playlistSk: '', title: '',
+      ),
+    );
+  }
+
+    //SHOW SLIDE AFTER VIDEO
+  (File, FileType)? _getNextFileWithType() {
+    if (_tracks.isEmpty && _slides.isEmpty) return null;
+    for (int i = 0; i < 2; i++) {
+      if (_turn == MediaTurn.track && _tracks.isNotEmpty) {
+        if (_trackIndex >= _tracks.length) _trackIndex = 0;
+
+        final file = _tracks[_trackIndex++];
+        _turn = MediaTurn.slide;
+        return (file, FileType.video);
+      }
+
+      if (_turn == MediaTurn.slide && _slides.isNotEmpty) {
+        if (_slideIndex >= _slides.length) _slideIndex = 0;
+
+        final file = _slides[_slideIndex++];
+        _turn = MediaTurn.track;
+        return (file, FileType.slide);
+      }
+    }
+
+    return null;
+  }
+
+    // SHOW ONLY VIDEO
+/*  (File, FileType)? _getNextFileWithType() {
+    if (_tracks.isEmpty && _slides.isEmpty) return null;
+    if (_tracks.isNotEmpty) {
+      if (_trackIndex >= _tracks.length) _trackIndex = 0;
+      final file = _tracks[_trackIndex++];
+      return (file, FileType.video);
+    }
+
+    return null;
+  }*/
+
+  Future<PlayingMediaModel?> _createPlayingTrackModel(CurrentTrackModel trackResult, File file) async {
+      return PlayingMediaModel(
+        track: trackResult.track,
+        file: file,
+        seekPosition: 0,
+        tag: "tag"
+    );
+  }
+
+  Future<void> _fetchNextTrack() async {
+    await startPeriodicWork();
+  }
+
+  Future<void> _initMedia() async {
+    if (_initialized) return;
+
+    final basePath = (await getApplicationDocumentsDirectory()).path;
+
+    final tracksDir = Directory(p.join(basePath, 'tracks'));
+    final slidesDir = Directory(p.join(basePath, 'slides'));
+
+    if (await tracksDir.exists()) {
+      _tracks = tracksDir
+          .listSync()
+          .whereType<File>()
+          .toList()
+        ..sort((a, b) => a.path.compareTo(b.path));
+    }
+
+    if (await slidesDir.exists()) {
+      _slides = slidesDir
+          .listSync()
+          .whereType<File>()
+          .toList()
+        ..sort((a, b) => a.path.compareTo(b.path));
+    }
+
+    _initialized = true;
+  }
+
+  File? _getNextFile() {
+    if (_tracks.isEmpty && _slides.isEmpty) return null;
+
+    for (int i = 0; i < 2; i++) {
+      if (_turn == MediaTurn.track && _tracks.isNotEmpty) {
+        if (_trackIndex >= _tracks.length) _trackIndex = 0;
+        final file = _tracks[_trackIndex++];
+        _turn = MediaTurn.slide;
+        return file;
+      }
+
+      if (_turn == MediaTurn.slide && _slides.isNotEmpty) {
+        if (_slideIndex >= _slides.length) _slideIndex = 0;
+        final file = _slides[_slideIndex++];
+        _turn = MediaTurn.track;
+        return file;
+      }
+    }
+
+    return null;
+  }
+}
+
+enum MediaTurn { track, slide }

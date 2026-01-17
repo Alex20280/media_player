@@ -1,5 +1,6 @@
+import 'dart:async';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:get_it/get_it.dart';
+import 'package:media_player/getrecenttrackbloc/get_recent_track_state.dart';
 import 'package:media_player/use_case/get_current_track_use_case.dart';
 import 'package:media_player/getrecenttrackbloc/get_recent_track_bloc.dart';
 import 'package:media_player/getrecenttrackbloc/get_recent_track_event.dart';
@@ -25,73 +26,94 @@ class PlayerViewModel extends Cubit<PlayerViewState> {
   late final GetRecentTrackBloc _getTrackBloc;
   late final ScheduleTrackPlayerService _scheduleTrackPlayerService;
 
-  GetRecentTrackBloc get getTrackBloc => _getTrackBloc;
+  Timer? _trackChangeTimer;
+  Timer? _closingWarningTimer;
+
   ScheduleTrackPlayerService get scheduleTrackPlayerService => _scheduleTrackPlayerService;
   PreloadSlidesService get preloadSlidesService => _preloadSlidesService;
+  GetRecentTrackBloc get getTrackBloc => _getTrackBloc;
 
-  void _initialize() {
-    _scheduleTrackPlayerService = GetIt.I<ScheduleTrackPlayerService>();
+  void _initialize() async{
+    _scheduleTrackPlayerService = ScheduleTrackPlayerService();
 
     _getTrackBloc = GetRecentTrackBloc(
       _getCurrentTrackUseCase,
       _scheduleTrackPlayerService,
       _preloadSlidesService,
-    )..add(LoadLocalTrackEvent());
+    )
+      ..stream.listen(_onTrackBlocState)
+      ..add(LoadLocalTrackEvent());
 
     _scheduleTrackPlayerService.addListener(_onPlayerManagerUpdate);
-  }
 
-  void _onPlayerManagerUpdate() {
-    if (!isClosed) {
-      emit(state.copyWith(updateTrigger: DateTime.now().millisecondsSinceEpoch));
-    }
   }
 
 
-  Future<void> onTrackChanged(PlayingMediaModel track) async {
-    final file = track.file;
-    if (file == null) {
-      return;
+  void _onTrackBlocState(GetRecentTrackState state) {
+    if (state is RecentTrackSuccess && state.currentTrack != null) {
+      onTrackChanged(state.currentTrack!);
+      _scheduleNextTrack();
     }
 
-    final fileType = FileTypeX.fromString(track.track.type);
-
-    if (fileType == FileType.slide) {
-      await scheduleTrackPlayerService.pauseForSlide();
-      return;
+    if (state is RecentTrackOutOfSchedule) {
+      _trackChangeTimer?.cancel();
+      _trackChangeTimer = null;
     }
 
-    if (fileType != FileType.video && fileType != FileType.audio) {
-      return;
+    if (state is RecentTrackError) {
+      _trackChangeTimer?.cancel();
+      _trackChangeTimer = null;
+    }
+  }
+
+  Future<void> _scheduleNextTrack() async {
+    _trackChangeTimer?.cancel();
+    _trackChangeTimer = null;
+
+      _trackChangeTimer = Timer(const Duration(seconds: 13), () {
+        _fetchNextTrack();
+      });
     }
 
 
-    if (scheduleTrackPlayerService.currentTrack?.path == file.path) {
+Future<void> onTrackChanged(PlayingMediaModel track) async {
+  final file = track.file;
+  if (file == null) return;
+  final fileType = FileTypeX.fromString(track.track.type);
+  if (fileType != FileType.video && fileType != FileType.audio) return;
 
-      return;
-    }
+  final seekDuration = Duration(
+    milliseconds: ((track.seekPosition ?? 0) * 1000).round(),
+  );
 
-    final seekDuration = Duration(
-      milliseconds: ((track.seekPosition ?? 0) * 1000).round(),
-    );
+  await scheduleTrackPlayerService.playTrack(
+    file,
+    seekDuration,
+    track.tag,
+    track.track.playlistSk,
+    track.track.sk,
+    track.track.filename,
+    track.track.type,
+    track.track.title,
+    track.track.artist,
+    track.track.campaignSk,
+  );
+}
 
-    await scheduleTrackPlayerService.playTrack(
-      file,
-      seekDuration,
-      track.tag,
-      track.track.playlistSk,
-      track.track.sk,
-      track.track.filename,
-      track.track.type,
-      track.track.title,
-      track.track.artist,
-      track.track.campaignSk,
-    );
+  void _onPlayerManagerUpdate() { if (!isClosed) { emit(state.copyWith(updateTrigger: DateTime.now().millisecondsSinceEpoch)); } }
+
+  void _fetchNextTrack() {
+    _getTrackBloc.add(LoadLocalTrackEvent());
   }
 
   @override
   Future<void> close() {
+    _trackChangeTimer?.cancel();
+    _trackChangeTimer = null;
+    _closingWarningTimer?.cancel();
+    _closingWarningTimer = null;
     _scheduleTrackPlayerService.removeListener(_onPlayerManagerUpdate);
+    _scheduleTrackPlayerService.dispose();
     _getTrackBloc.close();
     return super.close();
   }

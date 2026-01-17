@@ -33,7 +33,7 @@ class GetCurrentTrackUseCase {
   MediaTurn _turn = MediaTurn.track;
   bool _initialized = false;
 
-  Future<TrackStatus> startPeriodicWork() async {
+  Future<TrackStatus> receiveTrack() async {
     try {
       await _initMedia();
 
@@ -67,11 +67,6 @@ class GetCurrentTrackUseCase {
       final status = TrackError(e);
       _notifyTrackChanged(status);
       return status;
-    } finally {
-      _playingTracksService.startSingleTimer(
-        const Duration(seconds: 13),
-        _fetchNextTrack,
-      );
     }
   }
   CurrentTrackModel _buildCurrentTrack(File file, FileType type) {
@@ -126,10 +121,6 @@ class GetCurrentTrackUseCase {
         seekPosition: 0,
         tag: "tag"
     );
-  }
-
-  Future<void> _fetchNextTrack() async {
-    await startPeriodicWork();
   }
 
   Future<void> _initMedia() async {

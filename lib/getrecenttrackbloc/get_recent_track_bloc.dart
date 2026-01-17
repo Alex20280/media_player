@@ -10,92 +10,56 @@ import 'package:media_player/service/video_player_manager_service.dart';
 
 
 class GetRecentTrackBloc extends Bloc<GetRecentTrackEvent, GetRecentTrackState> {
-  final GetCurrentTrackUseCase getCurrentlyPlayingTrackUseCase;
+  final GetCurrentTrackUseCase _useCase;
   final ScheduleTrackPlayerService _playerManager;
-  PlayingMediaModel? _currentTrack;
   final PreloadSlidesService _preloadSlidesService;
 
+  PlayingMediaModel? _currentTrack;
+
   GetRecentTrackBloc(
-      this.getCurrentlyPlayingTrackUseCase,
+      this._useCase,
       this._playerManager,
       this._preloadSlidesService,
       ) : super(RecentTrackInitial()) {
     on<LoadLocalTrackEvent>(_onLoadLocalTrack);
-    on<_InternalTrackChangedEvent>(_onInternalTrackChanged);
   }
 
   Future<void> _onLoadLocalTrack(
       LoadLocalTrackEvent event,
       Emitter<GetRecentTrackState> emit,
       ) async {
-    emit(RecentTrackLoading());
-
-    getCurrentlyPlayingTrackUseCase.setTrackChangedCallback((status) {
-      add(_InternalTrackChangedEvent(status));
-    });
     try {
-      final status = await getCurrentlyPlayingTrackUseCase.startPeriodicWork();
+
+      final status = await _useCase.receiveTrack();
 
       if (status is TrackPlaying) {
-        if (FileTypeX.fromString(status.track?.track.type) == FileType.video||
-            FileTypeX.fromString(status.track?.track.type) == FileType.audio){
-          final track = status.track;
-          _currentTrack = track;
+        final track = status.track;
+        _currentTrack = track;
 
-          final file = track?.file;
-          if (file != null && _playerManager.currentTrack == null) {
-            await _playerManager.addTrackToPlaylist(file);
-          }
+        final fileType = FileTypeX.fromString(track?.track.type);
+        final file = track?.file;
+
+        if ((fileType == FileType.video || fileType == FileType.audio) && file != null) {
+          await _playerManager.addTrackToPlaylist(file);
         }
 
-        final fileType = FileTypeX.fromString(status.track?.track.type);
         if (fileType == FileType.slide) {
-          await _preloadSlidesService.preCacheSlide(status.track?.file, status.track?.track.filename);
+          await _preloadSlidesService.preCacheSlide(file, track?.track.filename);
         }
+
         emit(RecentTrackSuccess(currentTrack: _currentTrack));
-      } else if (status is TrackOutOfSchedule) {
-        emit(RecentTrackOutOfSchedule());
+
       } else if (status is TrackNotFound) {
         emit(RecentTrackError('File not found'));
+
       } else if (status is TrackError) {
         emit(RecentTrackError('Failed to load track: ${status.error}'));
       }
+
     } catch (e, stackTrace) {
       emit(RecentTrackError('Unexpected error: $e'));
+    } finally {
+      event.completer?.complete();
     }
   }
-
-  void _onInternalTrackChanged(
-      _InternalTrackChangedEvent event,
-      Emitter<GetRecentTrackState> emit,
-      ) async {
-    final status = event.status;
-
-    if (status is TrackPlaying) {
-      final track = status.track;
-      _currentTrack = track;
-      final file = track?.file;
-
-      final fileType = FileTypeX.fromString(track?.track.type);
-      if (fileType == FileType.slide) {
-        await _preloadSlidesService.preCacheSlide(track?.file, track?.track.filename);
-      } else if  (fileType == FileType.video|| fileType == FileType.audio) {
-        if (file != null) {
-          await _playerManager.addTrackToPlaylist(file);
-        }
-      }
-      if (state is RecentTrackSuccess) {
-        emit(RecentTrackSuccess(currentTrack: _currentTrack));
-      }
-    }
-    else if (status is TrackOutOfSchedule) {
-      _currentTrack = null;
-      emit(RecentTrackOutOfSchedule());
-    }
-  }
-}
-
-class _InternalTrackChangedEvent extends GetRecentTrackEvent {
-  final TrackStatus status;
-  _InternalTrackChangedEvent(this.status);
 }

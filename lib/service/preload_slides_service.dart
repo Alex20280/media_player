@@ -8,40 +8,35 @@ class PreloadSlidesService {
   PreloadSlidesService();
 
   final Map<String, ui.Image> _cache = {};
-  Map<String, ui.Image> get cache => _cache;
+  
+  String _getKey(String path) => path;
 
   Future<ui.Image?> preCacheSlide(File? file, String? filename) async {
-    if (filename == null) {
-      return null;
-    }
-
-    if (file == null) {
-       return null;
-    }
-
+    if (file == null || filename == null) return null;
+    
     final fileData = await compute(_readSingleFile, file);
-    if (fileData == null) {
-      return null;
-    }
-    ui.Image? image;
+    if (fileData == null) return null;
 
     try {
       final codec = await ui.instantiateImageCodec(fileData);
       final frame = await codec.getNextFrame();
-
-      image = frame.image;
-      _cache.clear();
-      _cache[filename] = image;
-
+      final newImage = frame.image;
+      
+      dispose(); 
+      
+      _cache[_getKey(file.path)] = newImage;
       codec.dispose();
-    } catch (e, stackTrace) {
-     }
-
-    return image;
+      
+      return newImage;
+    } catch (e) {
+      print("Error decoding image: $e");
+      return null;
+    }
   }
 
   static Uint8List? _readSingleFile(File file) {
     try {
+      if (!file.existsSync()) return null;
       return file.readAsBytesSync();
     } catch (e) {
       return null;
@@ -49,7 +44,7 @@ class PreloadSlidesService {
   }
 
   ui.Image? getDecodedImage(String filePath) {
-    return _cache.values.firstOrNull;
+    return _cache[_getKey(filePath)] ?? _cache.values.firstOrNull;
   }
 
   void dispose() {

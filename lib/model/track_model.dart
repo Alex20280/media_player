@@ -1,33 +1,3 @@
-enum FileType { audio, video, slide, unknown }
-
-extension FileTypeX on FileType {
-  String get value {
-    switch (this) {
-      case FileType.audio:
-        return "audio";
-      case FileType.video:
-        return "video";
-      case FileType.slide:
-        return "slide";
-      case FileType.unknown:
-        return "unknown";
-    }
-  }
-
-  static FileType fromString(String? value) {
-    switch (value) {
-      case "audio":
-        return FileType.audio;
-      case "video":
-        return FileType.video;
-      case "slide":
-        return FileType.slide;
-      default:
-        return FileType.unknown;
-    }
-  }
-}
-
 class TrackModel {
   final double duration;
   final List<dynamic>? dateRanges;
@@ -73,6 +43,7 @@ class TrackModel {
       campaignSk: json['campaign_sk']?.toString(),
     );
   }
+  
   @override
   String toString() {
     return 'TrackModel(filename: $filename, artist: $artist, type: $type, duration: $duration)';

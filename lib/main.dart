@@ -51,8 +51,12 @@ void main() async {
         ),
       );
     },
-        (e, st) {
-      GetIt.I<Talker>().handle(e, st);
+       (e, st) {
+      if (GetIt.I.isRegistered<Talker>()) {
+        GetIt.I<Talker>().handle(e, st);
+      } else {
+       print("CRITICAL ERROR (Talker not ready): $e");
+      }
     },
   );
 }

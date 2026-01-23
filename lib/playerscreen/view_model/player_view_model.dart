@@ -33,7 +33,7 @@ class PlayerViewModel extends Cubit<PlayerViewState> {
   PreloadSlidesService get preloadSlidesService => _preloadSlidesService;
   GetRecentTrackBloc get getTrackBloc => _getTrackBloc;
 
-  void _initialize() async{
+  void _initialize() async {
     _scheduleTrackPlayerService = ScheduleTrackPlayerService();
 
     _getTrackBloc = GetRecentTrackBloc(
@@ -45,9 +45,7 @@ class PlayerViewModel extends Cubit<PlayerViewState> {
       ..add(LoadLocalTrackEvent());
 
     _scheduleTrackPlayerService.addListener(_onPlayerManagerUpdate);
-
   }
-
 
   void _onTrackBlocState(GetRecentTrackState state) {
     if (state is RecentTrackSuccess && state.currentTrack != null) {
@@ -58,6 +56,7 @@ class PlayerViewModel extends Cubit<PlayerViewState> {
     if (state is RecentTrackOutOfSchedule) {
       _trackChangeTimer?.cancel();
       _trackChangeTimer = null;
+      _scheduleTrackPlayerService.stopAndClear();
     }
 
     if (state is RecentTrackError) {
@@ -70,37 +69,47 @@ class PlayerViewModel extends Cubit<PlayerViewState> {
     _trackChangeTimer?.cancel();
     _trackChangeTimer = null;
 
-      _trackChangeTimer = Timer(const Duration(seconds: 13), () {
-        _fetchNextTrack();
-      });
+    _trackChangeTimer = Timer(const Duration(seconds: 13), () {
+      _fetchNextTrack();
+    });
+  }
+
+  Future<void> onTrackChanged(PlayingMediaModel track) async {
+    final file = track.file;
+    if (file == null) return;
+    
+    final fileType = FileTypeX.fromString(track.track.type);
+
+    if (fileType == FileType.slide) {
+      await _scheduleTrackPlayerService.pauseForSlide();
+      return; 
     }
 
+    if (fileType != FileType.video && fileType != FileType.audio) return;
 
-Future<void> onTrackChanged(PlayingMediaModel track) async {
-  final file = track.file;
-  if (file == null) return;
-  final fileType = FileTypeX.fromString(track.track.type);
-  if (fileType != FileType.video && fileType != FileType.audio) return;
+    final seekDuration = Duration(
+      milliseconds: ((track.seekPosition) * 1000).round(),
+    );
 
-  final seekDuration = Duration(
-    milliseconds: ((track.seekPosition ?? 0) * 1000).round(),
-  );
+    await scheduleTrackPlayerService.playTrack(
+      file,
+      seekDuration,
+      track.tag,
+      track.track.playlistSk,
+      track.track.sk,
+      track.track.filename,
+      track.track.type,
+      track.track.title,
+      track.track.artist,
+      track.track.campaignSk,
+    );
+  }
 
-  await scheduleTrackPlayerService.playTrack(
-    file,
-    seekDuration,
-    track.tag,
-    track.track.playlistSk,
-    track.track.sk,
-    track.track.filename,
-    track.track.type,
-    track.track.title,
-    track.track.artist,
-    track.track.campaignSk,
-  );
-}
-
-  void _onPlayerManagerUpdate() { if (!isClosed) { emit(state.copyWith(updateTrigger: DateTime.now().millisecondsSinceEpoch)); } }
+  void _onPlayerManagerUpdate() {
+    if (!isClosed) {
+      emit(state.copyWith(updateTrigger: DateTime.now().millisecondsSinceEpoch));
+    }
+  }
 
   void _fetchNextTrack() {
     _getTrackBloc.add(LoadLocalTrackEvent());

@@ -25,10 +25,8 @@ class ScheduleTrackPlayerService with ChangeNotifier {
   );
 
   late final VideoController _videoController;
-  
   File? get currentTrack => _currentTrack;
   VideoController get videoController => _videoController;
-  
   File? _currentTrack;
   bool _isChangingTrack = false;
   StreamSubscription? _completedSubscription;
@@ -38,14 +36,6 @@ class ScheduleTrackPlayerService with ChangeNotifier {
     final path = file.path;
     if (_addedTrackPaths.contains(path)) return;
     _addedTrackPaths.add(path);
-
-    try {
-      final media = Media(path);
-      await _player.add(media);
-    } catch (e) {
-      if (kDebugMode) print("Error adding track: $e");
-      _addedTrackPaths.remove(path);
-    }
   }
 
   Future<void> playTrack(
@@ -64,23 +54,16 @@ class ScheduleTrackPlayerService with ChangeNotifier {
     _isChangingTrack = true;
 
     try {
-      await addTrackToPlaylist(file);
-
-      final index = _findTrackIndex(_player.state.playlist, file);
-      if (index == -1) return;
-
       _currentTrack = file;
 
-      await _player.pause();
-      await _player.jump(index);
-      
+      await _player.open(Media(file.path), play: false);
+
       if (seekPosition != null && seekPosition > Duration.zero) {
-         await _player.seek(seekPosition);
+        await _player.seek(seekPosition);
       } else if (isFirstRun) {
-        await _player.seek(const Duration(seconds: 5));
         isFirstRun = false;
       }
-      
+
       await _player.play();
       notifyListeners();
     } catch (e) {
@@ -91,23 +74,15 @@ class ScheduleTrackPlayerService with ChangeNotifier {
   }
 
   Future<void> pauseForSlide() async {
-    await _player.pause();
+    await _player.stop();
   }
 
   Future<void> stopAndClear() async {
-    await _player.pause();
+    await _player.stop();
   }
 
   Future<void> setVolume(double volume) {
     return _player.setVolume(volume);
-  }
-
-  int _findTrackIndex(Playlist playlist, File file) {
-    return playlist.medias.indexWhere((media) {
-      final mediaUri = Uri.decodeFull(media.uri).replaceAll('file://', '');
-      final filePath = file.path;
-      return mediaUri == filePath || mediaUri.endsWith(filePath.split('/').last);
-    });
   }
 
   @override

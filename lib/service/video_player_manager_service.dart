@@ -1,3 +1,4 @@
+
 import 'dart:async';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
@@ -38,7 +39,7 @@ class ScheduleTrackPlayerService with ChangeNotifier {
     _addedTrackPaths.add(path);
   }
 
-  Future<void> playTrack(
+ Future<void> playTrack(
     File file,
     Duration? seekPosition,
     String? tag,
@@ -58,16 +59,22 @@ class ScheduleTrackPlayerService with ChangeNotifier {
 
       await _player.open(Media(file.path), play: false);
 
+      for (int i = 0; i < 50; i++) {
+        if (_player.state.duration != Duration.zero) {
+          break; 
+        }
+        await Future.delayed(const Duration(milliseconds: 100));
+      }
+
       if (seekPosition != null && seekPosition > Duration.zero) {
         await _player.seek(seekPosition);
-      } else if (isFirstRun) {
-        isFirstRun = false;
-      }
+      } 
 
       await _player.play();
       notifyListeners();
+      
     } catch (e) {
-      if (kDebugMode) print("Error playing track: $e");
+      if (kDebugMode) print("❌ Error playing track: $e");
     } finally {
       _isChangingTrack = false;
     }

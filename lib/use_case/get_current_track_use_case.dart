@@ -14,7 +14,7 @@ class GetCurrentTrackUseCase {
   );
 
   final PlayingTracksService _playingTracksService;
-
+  
   void Function(TrackStatus)? _onTrackChanged;
 
   void setTrackChangedCallback(void Function(TrackStatus) callback) {
@@ -27,12 +27,17 @@ class GetCurrentTrackUseCase {
 
   List<File> _tracks = [];
   List<File> _slides = [];
-
   int _trackIndex = 0;
   int _slideIndex = 0;
-
   MediaTurn _turn = MediaTurn.track;
   bool _initialized = false;
+
+  File? peekNextVideo() {
+    if (_tracks.isEmpty) return null;
+    int nextIndex = _trackIndex; 
+    if (nextIndex >= _tracks.length) nextIndex = 0;
+    return _tracks[nextIndex];
+  }
 
   Future<TrackStatus> receiveTrack() async {
     try {
@@ -48,7 +53,7 @@ class GetCurrentTrackUseCase {
       final (file, fileType) = next;
 
       final trackResult = _buildCurrentTrack(file, fileType);
-
+      
       final playingTrack = await _createPlayingTrackModel(
         trackResult,
         file,
@@ -88,59 +93,40 @@ class GetCurrentTrackUseCase {
 
   (File, FileType)? _getNextFileWithType() {
     if (_tracks.isEmpty && _slides.isEmpty) return null;
+
     for (int i = 0; i < 2; i++) {
       if (_turn == MediaTurn.track && _tracks.isNotEmpty) {
         if (_trackIndex >= _tracks.length) _trackIndex = 0;
-
         final file = _tracks[_trackIndex++];
-        _turn = MediaTurn.slide;
+        _turn = MediaTurn.slide; 
         return (file, FileType.video);
       }
-
       if (_turn == MediaTurn.slide && _slides.isNotEmpty) {
         if (_slideIndex >= _slides.length) _slideIndex = 0;
-
         final file = _slides[_slideIndex++];
-        _turn = MediaTurn.track;
+        _turn = MediaTurn.track; 
         return (file, FileType.slide);
       }
+      _turn = _turn == MediaTurn.track ? MediaTurn.slide : MediaTurn.track;
     }
-
     return null;
   }
 
   Future<PlayingMediaModel?> _createPlayingTrackModel(
       CurrentTrackModel trackResult, File file) async {
     return PlayingMediaModel(
-        track: trackResult.track,
-        file: file,
-        seekPosition: 0,
-        tag: "tag");
+        track: trackResult.track, file: file, seekPosition: 0, tag: "tag");
   }
 
   Future<void> _initMedia() async {
+    if (_initialized) return;
+
     final basePath = (await getApplicationDocumentsDirectory()).path;
     final tracksDir = Directory(p.join(basePath, 'tracks'));
     final slidesDir = Directory(p.join(basePath, 'slides'));
 
-    if (!await tracksDir.exists()) {
-      await tracksDir.create(recursive: true);
-    }
-    if (!await slidesDir.exists()) {
-      await slidesDir.create(recursive: true);
-    }
-
-    print("📂");
-    print("Tracks: ${tracksDir.path}");
-    print("Slides: ${slidesDir.path}");
-
-    try {
-      if (Platform.isMacOS || Platform.isIOS) {
-        await Process.run('open', [tracksDir.path]);
-        await Process.run('open', [slidesDir.path]);
-      }
-    } catch (e) {
-    }
+    if (!await tracksDir.exists()) await tracksDir.create(recursive: true);
+    if (!await slidesDir.exists()) await slidesDir.create(recursive: true);
 
     if (await tracksDir.exists()) {
       _tracks = tracksDir
@@ -157,7 +143,6 @@ class GetCurrentTrackUseCase {
           .toList()
         ..sort((a, b) => a.path.compareTo(b.path));
     }
-
     _initialized = true;
   }
 }

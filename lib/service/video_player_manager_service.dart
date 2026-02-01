@@ -1,102 +1,97 @@
-
 import 'dart:async';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 
-class ScheduleTrackPlayerService with ChangeNotifier {
+class ScheduleTrackPlayerService with ChangeNotifier, WidgetsBindingObserver {
+  
   ScheduleTrackPlayerService() {
+    WidgetsBinding.instance.addObserver(this);
+
     _videoController = VideoController(
       _player,
       configuration: const VideoControllerConfiguration(
         enableHardwareAcceleration: true,
-        androidAttachSurfaceAfterVideoParameters: true,
+        androidAttachSurfaceAfterVideoParameters: false, 
       ),
     );
     _player.setPlaylistMode(PlaylistMode.none);
   }
 
-  bool isFirstRun = true;
-
   final Player _player = Player(
     configuration: const PlayerConfiguration(
-      bufferSize: 32 * 1024 * 1024,
+      bufferSize: 32 * 1024 * 1024, 
+      vo: 'gpu',
     ),
   );
 
   late final VideoController _videoController;
-  File? get currentTrack => _currentTrack;
   VideoController get videoController => _videoController;
-  File? _currentTrack;
-  bool _isChangingTrack = false;
-  StreamSubscription? _completedSubscription;
-  final List<String> _addedTrackPaths = [];
+  
+  String? _preloadedPath; 
 
-  Future<void> addTrackToPlaylist(File file) async {
-    final path = file.path;
-    if (_addedTrackPaths.contains(path)) return;
-    _addedTrackPaths.add(path);
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.paused || state == AppLifecycleState.detached) {
+      _player.pause();
+    }
   }
 
- Future<void> playTrack(
-    File file,
-    Duration? seekPosition,
-    String? tag,
-    String? sk,
-    String? playlistSk,
-    String? filename,
-    String? type,
-    String? title,
-    String? artist,
-    String? campaignSk,
-  ) async {
-    if (_isChangingTrack) return;
-    _isChangingTrack = true;
-
+  Future<void> preloadVideo(File file) async {
+    if (_preloadedPath == file.path) return;
+    
     try {
-      _currentTrack = file;
-
+      if (kDebugMode) print("⏳ Preloading: ${file.path.split('/').last}");
+      _preloadedPath = file.path;
       await _player.open(Media(file.path), play: false);
+    } catch (e) {
+      print("Preload error: $e");
+    }
+  }
 
-      for (int i = 0; i < 50; i++) {
-        if (_player.state.duration != Duration.zero) {
-          break; 
-        }
-        await Future.delayed(const Duration(milliseconds: 100));
+  Future<void> playTrack(
+    File file,
+    Duration? seekPosition, 
+    String? tag, String? sk, String? playlistSk, String? filename, String? type, String? title, String? artist, String? campaignSk,
+  ) async {
+    try {
+      bool isPreloaded = _preloadedPath == file.path;
+      
+      if (isPreloaded) {
+        if (kDebugMode) print("🚀 Instant Play: ${file.path.split('/').last}");
+        _preloadedPath = null;
+        await _player.play();
+      } else {
+        if (kDebugMode) print("▶️ Normal Play: ${file.path.split('/').last}");
+        await _player.open(Media(file.path), play: true);
+      }
+      if (seekPosition != null && seekPosition > Duration.zero) {
+           await _player.seek(seekPosition);
       }
 
-      if (seekPosition != null && seekPosition > Duration.zero) {
-        await _player.seek(seekPosition);
-      } 
-
-      await _player.play();
       notifyListeners();
-      
     } catch (e) {
-      if (kDebugMode) print("❌ Error playing track: $e");
-    } finally {
-      _isChangingTrack = false;
+      print("Play error: $e");
     }
   }
 
   Future<void> pauseForSlide() async {
-    await _player.stop();
+    await _player.pause();
   }
 
   Future<void> stopAndClear() async {
     await _player.stop();
+    _preloadedPath = null;
   }
-
-  Future<void> setVolume(double volume) {
-    return _player.setVolume(volume);
-  }
+  
+  Future<void> setVolume(double volume) => _player.setVolume(volume);
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _player.dispose();
-    _completedSubscription?.cancel();
-    _currentTrack = null;
     super.dispose();
   }
 }
